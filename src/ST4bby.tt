@@ -83,10 +83,6 @@ WHERE t.object_id = @TableId";
                                     fileName += ".cs";
 
                                 var path = SaveOutput(fileName);
-                                // total hack but it adds the newly written file into the current visual studio instance
-                                var project = GetCurrentProject();
-
-                                project.ProjectItems.AddFromFile(path);
                             }
                         }
                     }
@@ -97,24 +93,29 @@ WHERE t.object_id = @TableId";
 #>
 <#+
 
-    private readonly static Dictionary<string, string> TypeMappings = new Dictionary<string, string>
+    private readonly static Dictionary<string, Tuple<string, string>> TypeMappings = new Dictionary<string, Tuple<string, string>>
     {
-        { "bit","bool" },
-        { "uniqueidentifier","Guid" },
-        { "datetime","DateTime" },
-        { "datetime2","DateTime" },
-        { "smalldatetime","DateTime" },
-        { "int","int" },
-        { "smallint","short" },
-        { "bigint","long" },
-        { "varchar","string" },
-        { "nchar","char" },
-        { "char","char" },
-        { "nvarchar","string" },
-        { "text","string" },
-        { "decimal", "decimal" },
-        { "money", "decimal" },
-        { "float", "float" }
+		{ "bit", new Tuple<string, string>("bool", "val") },
+		{ "uniqueidentifier", new Tuple<string, string>("Guid", "val") },
+		{ "timestamp", new Tuple<string, string>("byte[]", "ref") },
+		{ "datetime", new Tuple<string, string>("DateTime", "val") },
+		{ "datetime2", new Tuple<string, string>("DateTime", "val") },
+		{ "smalldatetime", new Tuple<string, string>("DateTime", "val") },
+		{ "int", new Tuple<string, string>("int", "val") },
+		{ "smallint", new Tuple<string, string>("short", "val") },
+		{ "tinyint", new Tuple<string, string>("byte", "val") },
+		{ "bigint", new Tuple<string, string>("long", "val") },
+		{ "varchar", new Tuple<string, string>("string", "ref") },
+		{ "nchar", new Tuple<string, string>("string", "ref") },
+		{ "char", new Tuple<string, string>("string", "ref") },
+		{ "nvarchar", new Tuple<string, string>("string", "ref") },
+		{ "text", new Tuple<string, string>("string", "ref") },
+		{ "decimal", new Tuple<string, string>("decimal", "val") },
+		{ "money", new Tuple<string, string>("decimal", "val") },
+		{ "float", new Tuple<string, string>("Double", "val") },
+		{ "real", new Tuple<string, string>("Single", "val") },
+		{ "geography", new Tuple<string, string>("SqlGeography", "ref") },
+		{ "geometry", new Tuple<string, string>("SqlGeometry", "ref") }
     };
 
     public EnvDTE.Project GetCurrentProject()
@@ -177,10 +178,10 @@ WHERE t.object_id = @TableId";
     private static string CreateMethodParameter( Column column )
     {
         var isNullable       = column.IsNullable;
-        var type             = TypeMappings.ContainsKey(column.Type) ? TypeMappings[column.Type] : "string";
-        var typeFormat       = type != "string" && isNullable ? "Nullable<{0}>" : "{0}";
+        var type             = TypeMappings.ContainsKey(column.Type) ? TypeMappings[column.Type] : new Tuple<string, string>("string", "ref");
+        var typeFormat       = type.Item2 != "ref" && isNullable ? "Nullable<{0}>" : "{0}";
 
-        return String.Format( "{0} {1}", String.Format( typeFormat,type ), column.Name );
+        return String.Format( "{0} {1}", String.Format( typeFormat, type.Item1 ), column.Name );
     }
 
     /// <summary> This method creates a method signature.
@@ -250,7 +251,7 @@ WHERE t.object_id = @TableId";
     private bool IsClassOkToGenerate( Table table )
     {
         if( !string.IsNullOrWhiteSpace( ExcludeTablesRegex )
-            && ( table.IsSystemObject || Regex.IsMatch( table.Name, ExcludeTablesRegex ) ) )
+            && ( table.IsSystemObject || Regex.IsMatch( table.Name, ExcludeTablesRegex ) || Regex.IsMatch( table.Schema, ExcludeTablesRegex ) ) )
         {
             return false;
         }
@@ -272,12 +273,12 @@ WHERE t.object_id = @TableId";
     private string OutputProperty( Column column )
     {
         var isNullable       = column.IsNullable;
-        var type             = TypeMappings.ContainsKey(column.Type) ? TypeMappings[column.Type] : "string";
-        var typeFormat       = type != "string" && isNullable ? "Nullable<{0}>" : "{0}";
+        var type             = TypeMappings.ContainsKey(column.Type) ? TypeMappings[column.Type] : new Tuple<string, string>("string", "ref");
+        var typeFormat       = type.Item2 != "ref" && isNullable ? "Nullable<{0}>" : "{0}";
 
         var annotations      = GetAnnotations( column );
 
-        return String.Format( "{0}public {1} {2} {{ get; set; }}", annotations, String.Format( typeFormat,type ), column.Name );
+        return String.Format( "{0}public {1} {2} {{ get; set; }}", annotations, String.Format( typeFormat,type.Item1 ), column.Name );
     }
 
     string GetAnnotations( Column col )
@@ -354,12 +355,15 @@ WHERE t.object_id = @TableId";
         Out( "// This class was automatically generated with love by ST4bby {0}.", System.DateTime.Now.ToString() );
         Out( "// Read more at http://jbubriski.github.com/ST4bby/" );
         Out( "" );
+        Out( "using System;" );
+        Out( "using System.ComponentModel.DataAnnotations;" );
+        Out( "" );
+		//Out( "using Microsoft.SqlServer.Types;");
+        Out( "" );
         Out( CreateNamespaceSignature( namespaceName, table, UseSchemaForNamespace ) );
         Out( "{" );
         PushIndent( "\t" );
-            Out( "using System;" );
-            Out( "using System.ComponentModel.DataAnnotations;" );
-            Out( "" );
+	    Out( "[Serializable]");
             Out( CreateClassSignature( table, UsePartialClass ) );
             Out( "{" );
             PushIndent( "\t" );
